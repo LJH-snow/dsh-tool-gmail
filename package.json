@@ -61,6 +61,6 @@
   },
   "homepage": "https://github.com/LJH-snow/dsh-tool-gmail#readme",
   "bin": {
-    "dsh-gmail-auth": "./scripts/auth-gmail.mjs"
+    "dsh-gmail-auth": "scripts/auth-gmail.mjs"
   }
 }

@@ -62,7 +62,9 @@ describe('Gmail OAuth helper script', () => {
     const raw = await readFile(new URL('../package.json', import.meta.url), 'utf8')
     const pkg = JSON.parse(raw) as { scripts: Record<string, string>, bin: Record<string, string>, files: string[] }
     expect(pkg.scripts['auth:gmail']).toBe('node scripts/auth-gmail.mjs')
-    expect(pkg.bin['dsh-gmail-auth']).toBe('./scripts/auth-gmail.mjs')
+    // npm normalizes a leading "./" here and warns on every publish, so the
+    // manifest keeps the normalized form.
+    expect(pkg.bin['dsh-gmail-auth']).toBe('scripts/auth-gmail.mjs')
     expect(pkg.files).toContain('scripts')
   })
 })
