@@ -1,0 +1,16 @@
+# Example Cordis config for dsh-tool-gmail.
+# Recommended read-only scope:
+# - https://www.googleapis.com/auth/gmail.readonly
+#
+# Generate refresh credentials with:
+# npm run auth:gmail -- --client-id '<oauth-client-id>' --client-secret '<oauth-client-secret>'
+
+- name: 'github:LJH-snow/dsh-tool-gmail'
+  config:
+    accessToken: 'ya29.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    # or use OAuth refresh credentials:
+    # clientId: 'xxxxxxxx.apps.googleusercontent.com'
+    # clientSecret: 'xxxxxxxxxxxxxxxxxxxx'
+    # refreshToken: '1//xxxxxxxxxxxxxxxxxxxxxxxx'
+    # tokenUrl: 'https://oauth2.googleapis.com/token'
+    # timeoutMs: 15000

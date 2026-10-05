@@ -1,0 +1,18 @@
+{
+  "name": "dsh-tool-gmail",
+  "version": "0.2.0",
+  "description": "Gmail read-only tools for DeepSeek Harness",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Dsh Tool Gmail",
+    "shortDescription": "Read Gmail messages, threads, and labels.",
+    "longDescription": "Gmail read-only tools for DeepSeek Harness, including auth checks, message search and retrieval, thread inspection, and label listing.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me search Gmail and inspect messages or threads."
+  }
+}
