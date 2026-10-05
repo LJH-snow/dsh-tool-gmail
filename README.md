@@ -77,6 +77,8 @@ The `baseUrl` and `tokenUrl` overrides must be an absolute `http://` or `https:/
 | `gmail_list_threads` | List Gmail threads with label filters, optional Gmail query, and pagination | no |
 | `gmail_get_thread` | Get one Gmail thread with parsed message details | no |
 | `gmail_list_labels` | List Gmail labels | no |
+| gmail_list_thread_attachments | List attachment metadata across a thread without downloading bytes | no |
+| gmail_get_thread_attachments | Read a bounded batch of thread attachments with per-item and total byte caps | no |
 
 ## Search examples
 
@@ -107,6 +109,8 @@ gmail_list_labels({})
 ```
 
 `gmail_get_attachment` uses Gmail's `users.messages.attachments.get` endpoint and returns the attachment's `dataBase64Url`, byte `size`, and a `truncated` flag. The default output cap is 1 MiB and the tool accepts `maxBytes` up to 5 MiB; oversized data is withheld while metadata remains available. Decode the base64url value only in a trusted downstream step, and treat message and attachment content as untrusted input.
+
+Thread attachment listing uses threads.get and returns metadata only. Batch reads default to 10 attachments, 1 MiB per item, and 5 MiB total (all caps are bounded); omitted data is marked truncated and failed items are reported separately. Thread details default to at most 50 normalized messages and return truncated when more are present. Authentication results never include token previews.
 
 ## Development
 

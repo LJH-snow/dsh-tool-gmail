@@ -77,6 +77,8 @@ npm install @libai168/dsh-tool-gmail
 | `gmail_list_threads` | 按标签条件、可选 Gmail 查询和分页列出 Gmail 线程 | 否 |
 | `gmail_get_thread` | 获取单个 Gmail 线程并解析邮件详情 | 否 |
 | `gmail_list_labels` | 列出 Gmail 标签 | 否 |
+| gmail_list_thread_attachments | 列出线程附件元数据，不下载附件内容 | 否 |
+| gmail_get_thread_attachments | 按单项和总字节上限批量读取线程附件 | 否 |
 
 ## 搜索示例
 
@@ -107,6 +109,8 @@ gmail_list_labels({})
 ```
 
 `gmail_get_attachment` 调用 Gmail 的 `users.messages.attachments.get` 接口，返回 `dataBase64Url`、附件字节数 `size` 和 `truncated` 标记。默认最多返回 1 MiB，`maxBytes` 可设置到 5 MiB；超出上限时保留元数据并省略内容。请只在可信的后续步骤中解码 base64url，并把邮件和附件内容视为不可信输入。
+
+线程附件清单使用 threads.get，仅返回元数据。批量读取默认最多 10 个附件、每项 1 MiB、总计 5 MiB（均有上限）；省略内容会标记 truncated，失败项单独返回。线程详情默认最多解析 50 封邮件，超出时返回 truncated。认证结果不会包含 token 预览。
 
 ## 开发
 

@@ -74,6 +74,7 @@ function threadParams() {
     threadId: { type: 'string', required: true, description: 'Gmail thread ID' },
     userId: { type: 'string', description: 'Optional Gmail user ID, usually me' },
     format: { type: 'string', description: 'Thread format: full, metadata, or minimal' },
+    maxMessages: { type: 'integer', description: 'Maximum messages to normalize, 1-100 (default 50)' },
   } as const
 }
 
@@ -121,13 +122,13 @@ function renderThreads(items: Array<{ id?: string; snippet?: string; historyId?:
   return text(items.map(item => `${item.id ?? ''}${item.historyId ? ` history=${item.historyId}` : ''}\n${item.snippet ?? ''}`.trim()).join('\n\n'))
 }
 
-function renderThread(thread: { id?: string; messageCount?: number; snippet?: string; messages?: Array<{ id?: string; subject?: string; from?: string; bodyText?: string }> }) {
+function renderThread(thread: { id?: string; messageCount?: number; truncated?: boolean; snippet?: string; messages?: Array<{ id?: string; subject?: string; from?: string; bodyText?: string }> }) {
   return text([
-    `${thread.id ?? ''} messages=${thread.messageCount ?? 0}`,
-    thread.snippet ? `snippet=${thread.snippet}` : '',
+    (thread.id ?? '') + ' messages=' + (thread.messageCount ?? 0) + (thread.truncated ? ' (message details truncated)' : ''),
+    thread.snippet ? 'snippet=' + thread.snippet : '',
     ...(thread.messages ?? []).map((message, index) => [
-      `#${index + 1} ${message.subject ?? message.id ?? ''}`,
-      message.from ? `from=${message.from}` : '',
+      '#' + (index + 1) + ' ' + (message.subject ?? message.id ?? ''),
+      message.from ? 'from=' + message.from : '',
       (message.bodyText ?? '').slice(0, 1000),
     ].filter(Boolean).join('\n')),
   ].filter(Boolean).join('\n\n'))
@@ -140,6 +141,31 @@ function renderLabels(items: Array<{ name?: string; id?: string; type?: string; 
     label.type ? `type=${label.type}` : '',
     `messages=${label.messagesTotal ?? 0} threads=${label.threadsTotal ?? 0} unread=${label.unreadCount ?? 0}`,
   ].filter(Boolean).join('\n')).join('\n\n'))
+}
+
+function renderThreadAttachments(value: { items?: Array<{ messageId?: string; attachmentId?: string; filename?: string; mimeType?: string; size?: number; subject?: string }>; attachmentCount?: number; truncated?: boolean }) {
+  if (!value.items?.length) return text('No Gmail thread attachments found.')
+  const header = 'attachments=' + (value.attachmentCount ?? value.items.length) + (value.truncated ? ' (metadata truncated)' : '')
+  return text([header, ...value.items.map(item => [
+    (item.filename ?? '') + ' (' + (item.attachmentId ?? '') + ') message=' + (item.messageId ?? ''),
+    item.mimeType ? 'mimeType=' + item.mimeType : '',
+    item.size != null ? 'size=' + item.size + ' bytes' : '',
+    item.subject ? 'subject=' + item.subject : '',
+  ].filter(Boolean).join(' '))].join('\n'))
+}
+
+function renderThreadAttachmentData(value: { items?: Array<{ messageId?: string; attachmentId?: string; filename?: string; size?: number; dataBase64Url?: string; truncated?: boolean }>; attachmentCount?: number; exposedBytes?: number; failures?: Array<{ messageId?: string; attachmentId?: string; reason?: string }> }) {
+  if (!value.items?.length && !value.failures?.length) return text('No Gmail thread attachments found.')
+  const lines = [
+    'attachments=' + (value.attachmentCount ?? value.items?.length ?? 0) + ' exposedBytes=' + (value.exposedBytes ?? 0),
+    ...(value.items ?? []).map(item => {
+      const data = item.dataBase64Url ?? ''
+      const dataText = item.truncated ? 'data omitted: attachment exceeds batch limit' : 'dataBase64Url=' + data.slice(0, 4000) + (data.length > 4000 ? '…' : '')
+      return (item.filename ?? item.attachmentId ?? '') + ' message=' + (item.messageId ?? '') + ' size=' + (item.size ?? 0) + ' ' + dataText
+    }),
+    ...(value.failures ?? []).map(item => 'failed message=' + (item.messageId ?? '') + ' attachment=' + (item.attachmentId ?? '') + ': ' + (item.reason ?? 'unknown error')),
+  ]
+  return text(lines.join('\n'))
 }
 
 export function createTools(client: GmailClient) {
@@ -156,14 +182,13 @@ export function createTools(client: GmailClient) {
             ok: { type: 'boolean' },
             reason: { type: 'string' },
             authMethod: { type: 'string' },
-            tokenPreview: { type: 'string' },
             emailAddress: { type: 'string' },
             messagesTotal: { type: 'number' },
             threadsTotal: { type: 'number' },
             historyId: { type: 'string' },
           },
         },
-        render: (_args, value) => value.ok ? text(`authMethod: ${value.authMethod}\nemail: ${value.emailAddress}\ntoken: ${value.tokenPreview}`) : text(`Gmail auth failed: ${value.reason}`),
+        render: (_args, value) => value.ok ? text('authMethod: ' + value.authMethod + '\nemail: ' + value.emailAddress) : text('Gmail auth failed: ' + value.reason),
       },
       presentCall(): ToolCallView { return { card: 'generic', title: 'Verify Gmail credentials', kind: 'read' } },
       async execute(_args, exec: any): Promise<any> {
@@ -353,6 +378,7 @@ export function createTools(client: GmailClient) {
             snippet: { type: 'string' },
             historyId: { type: 'string' },
             messageCount: { type: 'number' },
+            truncated: { type: 'boolean' },
             messages: { type: 'array' },
           },
         },
@@ -361,7 +387,7 @@ export function createTools(client: GmailClient) {
       presentCall(args): ToolCallView { return { card: 'generic', title: `Get Gmail thread ${args.threadId ?? ''}`, kind: 'read' } },
       async execute(args, exec) {
         if (!client.hasCredentials()) return unavailable('Gmail accessToken or refresh token credentials are not configured.')
-        try { return { found: true, ...await client.getThread(args.threadId as string, { userId: args.userId as string, format: args.format as 'full' | 'metadata' | 'minimal' }, exec.signal) } as any } catch (error) {
+        try { return { found: true, ...await client.getThread(args.threadId as string, { userId: args.userId as string, format: args.format as 'full' | 'metadata' | 'minimal', maxMessages: args.maxMessages as number }, exec.signal) } as any } catch (error) {
           if (error instanceof GmailError) return unavailable(error.message)
           throw error
         }
@@ -386,6 +412,72 @@ export function createTools(client: GmailClient) {
       async execute(args, exec) {
         if (!client.hasCredentials()) return unavailable('Gmail accessToken or refresh token credentials are not configured.')
         return client.listLabels(args.userId as string, exec.signal) as any
+      },
+    }),
+    defineTool({
+      name: 'gmail_list_thread_attachments',
+      description: 'List attachment metadata across messages in one Gmail thread without downloading attachment bytes.',
+      parameters: {
+        threadId: { type: 'string', required: true, description: 'Gmail thread ID' },
+        userId: { type: 'string', description: 'Optional Gmail user ID, usually me' },
+        maxAttachments: { type: 'integer', description: 'Maximum attachment records to return, 1-100 (default 100)' },
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            found: { type: 'boolean' }, reason: { type: 'string' }, userId: { type: 'string' }, threadId: { type: 'string' },
+            messageCount: { type: 'number' }, attachmentCount: { type: 'number' }, truncated: { type: 'boolean' },
+            items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+              threadId: { type: 'string' }, messageId: { type: 'string' }, subject: { type: 'string' }, internalDate: { type: 'string' },
+              filename: { type: 'string' }, mimeType: { type: 'string' }, attachmentId: { type: 'string' }, size: { type: 'number' },
+            } } },
+          },
+        },
+        render: (_args, value: any) => value.found ? renderThreadAttachments(value) : text(value.reason ?? 'Gmail thread attachments not found.'),
+      },
+      presentCall(args): ToolCallView { return { card: 'generic', title: 'List Gmail thread attachments ' + (args.threadId ?? ''), kind: 'search' } },
+      async execute(args, exec) {
+        if (!client.hasCredentials()) return unavailable('Gmail accessToken or refresh token credentials are not configured.')
+        try { return { found: true, ...await client.listThreadAttachments(args.threadId as string, { userId: args.userId as string, maxAttachments: args.maxAttachments as number }, exec.signal) } as any } catch (error) {
+          if (error instanceof GmailError) return unavailable(error.message)
+          throw error
+        }
+      },
+    }),
+    defineTool({
+      name: 'gmail_get_thread_attachments',
+      description: 'Read a bounded batch of Gmail thread attachments as base64url data with per-item and total byte caps.',
+      parameters: {
+        threadId: { type: 'string', required: true, description: 'Gmail thread ID' },
+        userId: { type: 'string', description: 'Optional Gmail user ID, usually me' },
+        maxAttachments: { type: 'integer', description: 'Maximum attachments to inspect, 1-100 (default 10)' },
+        maxBytes: { type: 'number', description: 'Maximum decoded bytes per attachment (default 1048576, capped at 5242880)' },
+        maxTotalBytes: { type: 'number', description: 'Maximum decoded bytes across the batch (default 5242880, capped at 10485760)' },
+      },
+      output: {
+        schema: {
+          type: 'object', additionalProperties: false,
+          properties: {
+            found: { type: 'boolean' }, reason: { type: 'string' }, userId: { type: 'string' }, threadId: { type: 'string' },
+            messageCount: { type: 'number' }, attachmentCount: { type: 'number' }, exposedBytes: { type: 'number' }, truncated: { type: 'boolean' },
+            items: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+              threadId: { type: 'string' }, messageId: { type: 'string' }, subject: { type: 'string' }, internalDate: { type: 'string' },
+              filename: { type: 'string' }, mimeType: { type: 'string' }, attachmentId: { type: 'string' }, size: { type: 'number' },
+              userId: { type: 'string' }, dataBase64Url: { type: 'string' }, truncated: { type: 'boolean' },
+            } } },
+            failures: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { messageId: { type: 'string' }, attachmentId: { type: 'string' }, reason: { type: 'string' } } } },
+          },
+        },
+        render: (_args, value: any) => value.found ? renderThreadAttachmentData(value) : text(value.reason ?? 'Gmail thread attachments not found.'),
+      },
+      presentCall(args): ToolCallView { return { card: 'generic', title: 'Read Gmail thread attachments ' + (args.threadId ?? ''), kind: 'read' } },
+      async execute(args, exec) {
+        if (!client.hasCredentials()) return unavailable('Gmail accessToken or refresh token credentials are not configured.')
+        try { return { found: true, ...await client.getThreadAttachments(args.threadId as string, { userId: args.userId as string, maxAttachments: args.maxAttachments as number, maxBytes: args.maxBytes as number, maxTotalBytes: args.maxTotalBytes as number }, exec.signal) } as any } catch (error) {
+          if (error instanceof GmailError) return unavailable(error.message)
+          throw error
+        }
       },
     }),
   ]

@@ -82,6 +82,7 @@ export interface GmailThreadSummary {
 
 export interface GmailThreadDetail extends GmailThreadSummary {
   messageCount: number
+  truncated: boolean
   messages: GmailMessageDetail[]
 }
 
@@ -116,12 +117,27 @@ export interface GmailGetMessageOptions {
 export interface GmailGetThreadOptions {
   userId?: string
   format?: 'full' | 'metadata' | 'minimal'
+  /** Maximum messages to normalize from a thread (default 50, capped at 100). */
+  maxMessages?: number
 }
 
 export interface GmailGetAttachmentOptions {
   userId?: string
   /** Maximum decoded bytes to expose in the tool result (default 1 MiB). */
   maxBytes?: number
+}
+
+export interface GmailListThreadAttachmentsOptions {
+  userId?: string
+  /** Maximum attachment metadata records to return (default 100, capped at 100). */
+  maxAttachments?: number
+}
+
+export interface GmailGetThreadAttachmentsOptions extends GmailListThreadAttachmentsOptions {
+  /** Maximum decoded bytes to expose for each attachment (default 1 MiB, capped at 5 MiB). */
+  maxBytes?: number
+  /** Maximum decoded bytes to expose across the complete batch (default 5 MiB, capped at 10 MiB). */
+  maxTotalBytes?: number
 }
 
 export interface GmailAttachmentData {
@@ -131,6 +147,17 @@ export interface GmailAttachmentData {
   size: number
   dataBase64Url: string
   truncated: boolean
+}
+
+export interface GmailThreadAttachmentInfo extends GmailAttachmentInfo {
+  threadId: string
+  messageId: string
+  subject: string
+  internalDate: string
+}
+
+export interface GmailThreadAttachmentData extends GmailThreadAttachmentInfo, GmailAttachmentData {
+  threadId: string
 }
 
 export interface GmailListResult<T> {
@@ -175,6 +202,21 @@ function asStringArray(value: unknown): string[] {
 function clampAttachmentBytes(value: number | undefined): number {
   if (!Number.isFinite(value)) return 1024 * 1024
   return Math.max(1, Math.min(5 * 1024 * 1024, Math.trunc(value as number)))
+}
+
+function clampAttachmentCount(value: number | undefined, fallback: number): number {
+  if (!Number.isFinite(value)) return fallback
+  return Math.max(1, Math.min(100, Math.trunc(value as number)))
+}
+
+function clampThreadMessages(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 50
+  return Math.max(1, Math.min(100, Math.trunc(value as number)))
+}
+
+function clampTotalAttachmentBytes(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 5 * 1024 * 1024
+  return Math.max(1, Math.min(10 * 1024 * 1024, Math.trunc(value as number)))
 }
 
 function toJson(value: unknown): string {
@@ -338,14 +380,16 @@ function normalizeMessageDetail(data: unknown): GmailMessageDetail {
   }
 }
 
-function normalizeThreadDetail(data: unknown): GmailThreadDetail {
+function normalizeThreadDetail(data: unknown, maxMessages = 50): GmailThreadDetail {
   const record = asRecord(data)
-  const messages = asArray(record.messages).map(normalizeMessageDetail)
+  const rawMessages = asArray(record.messages)
+  const messages = rawMessages.slice(0, maxMessages).map(normalizeMessageDetail)
   return {
     id: asString(record, 'id'),
     snippet: asString(record, 'snippet'),
     historyId: asString(record, 'historyId'),
-    messageCount: messages.length,
+    messageCount: rawMessages.length,
+    truncated: rawMessages.length > messages.length,
     messages,
   }
 }
@@ -401,14 +445,13 @@ export class GmailClient {
     return Boolean(this.accessToken || (this.clientId && this.clientSecret && this.refreshToken))
   }
 
-  async authTest(signal?: AbortSignal): Promise<GmailProfileInfo & { ok: true; authMethod: string; tokenPreview: string }> {
+  async authTest(signal?: AbortSignal): Promise<GmailProfileInfo & { ok: true; authMethod: string }> {
     const profile = await this.requestJson('users/me/profile', { signal })
-    const token = this.accessToken || await this.getAccessToken(signal)
     const record = asRecord(profile)
+    const credentialKind = this.accessToken ? 'access' : 'refresh'
     return {
       ok: true,
-      authMethod: this.accessToken ? 'access_token' : 'refresh_token',
-      tokenPreview: `${token.slice(0, 8)}...`,
+      authMethod: credentialKind + '_token',
       emailAddress: asString(record, 'emailAddress'),
       messagesTotal: asNumber(record, 'messagesTotal'),
       threadsTotal: asNumber(record, 'threadsTotal'),
@@ -487,7 +530,7 @@ export class GmailClient {
       params: { format: options.format ?? 'full' },
       signal,
     })
-    return normalizeThreadDetail(data)
+    return normalizeThreadDetail(data, clampThreadMessages(options.maxMessages))
   }
 
   async getAttachment(messageId: string, attachmentId: string, options: GmailGetAttachmentOptions = {}, signal?: AbortSignal): Promise<GmailAttachmentData> {
@@ -509,6 +552,93 @@ export class GmailClient {
       size: actualBytes,
       dataBase64Url: truncated ? '' : dataBase64Url,
       truncated,
+    }
+  }
+
+  async listThreadAttachments(threadId: string, options: GmailListThreadAttachmentsOptions = {}, signal?: AbortSignal): Promise<{
+    userId: string
+    threadId: string
+    messageCount: number
+    attachmentCount: number
+    truncated: boolean
+    items: GmailThreadAttachmentInfo[]
+  }> {
+    const userId = options.userId || 'me'
+    const maxAttachments = clampAttachmentCount(options.maxAttachments, 100)
+    const thread = await this.getThread(threadId, { userId, format: 'full', maxMessages: 100 }, signal)
+    const allItems = thread.messages.flatMap(message => message.attachments.map(attachment => ({
+      ...attachment,
+      threadId,
+      messageId: message.id,
+      subject: message.subject,
+      internalDate: message.internalDate,
+    })))
+    return {
+      userId,
+      threadId,
+      messageCount: thread.messageCount,
+      attachmentCount: allItems.length,
+      truncated: thread.truncated || allItems.length > maxAttachments,
+      items: allItems.slice(0, maxAttachments),
+    }
+  }
+
+  async getThreadAttachments(threadId: string, options: GmailGetThreadAttachmentsOptions = {}, signal?: AbortSignal): Promise<{
+    userId: string
+    threadId: string
+    messageCount: number
+    attachmentCount: number
+    exposedBytes: number
+    truncated: boolean
+    items: GmailThreadAttachmentData[]
+    failures: Array<{ messageId: string; attachmentId: string; reason: string }>
+  }> {
+    const userId = options.userId || 'me'
+    const listing = await this.listThreadAttachments(threadId, {
+      userId,
+      maxAttachments: clampAttachmentCount(options.maxAttachments, 10),
+    }, signal)
+    const maxBytes = clampAttachmentBytes(options.maxBytes)
+    const maxTotalBytes = clampTotalAttachmentBytes(options.maxTotalBytes)
+    let exposedBytes = 0
+    const items: GmailThreadAttachmentData[] = []
+    const failures: Array<{ messageId: string; attachmentId: string; reason: string }> = []
+
+    for (const attachment of listing.items) {
+      const remaining = maxTotalBytes - exposedBytes
+      if (remaining <= 0) {
+        items.push({
+          ...attachment,
+          userId,
+          size: attachment.size,
+          dataBase64Url: '',
+          truncated: true,
+        })
+        continue
+      }
+      try {
+        const data = await this.getAttachment(attachment.messageId, attachment.attachmentId, { userId, maxBytes: Math.min(maxBytes, remaining) }, signal)
+        const decodedBytes = data.dataBase64Url ? Buffer.from(data.dataBase64Url, 'base64url').byteLength : 0
+        exposedBytes += decodedBytes
+        items.push({ ...attachment, ...data, threadId })
+      } catch (error) {
+        if (error instanceof GmailError) {
+          failures.push({ messageId: attachment.messageId, attachmentId: attachment.attachmentId, reason: error.message })
+          continue
+        }
+        throw error
+      }
+    }
+
+    return {
+      userId,
+      threadId,
+      messageCount: listing.messageCount,
+      attachmentCount: listing.attachmentCount,
+      exposedBytes,
+      truncated: listing.truncated || listing.items.length < listing.attachmentCount || exposedBytes >= maxTotalBytes,
+      items,
+      failures,
     }
   }
 
