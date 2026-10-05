@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { GmailClient } from '../src/client.js'
 import { createTools } from '../src/index.js'
 
+/** Deterministic DNS so tests never depend on real resolution. */
+const publicLookup = async () => [{ address: '93.184.216.34', family: 4 as const }]
+
+
 function exec(signal = new AbortController().signal) {
   return { signal } as any
 }
@@ -12,7 +16,7 @@ function jsonResponse(data: unknown, init: ResponseInit = {}) {
 
 describe('Gmail tools', () => {
   it('registers the Gmail tool set', () => {
-    expect(createTools(new GmailClient({ accessToken: 'ya29.static' })).map(tool => tool.name)).toEqual([
+    expect(createTools(new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static' })).map(tool => tool.name)).toEqual([
       'gmail_auth_test',
       'gmail_list_messages',
       'gmail_search_messages',
@@ -25,12 +29,12 @@ describe('Gmail tools', () => {
   })
 
   it('allows thread listings to accept a Gmail query', () => {
-    const tools = createTools(new GmailClient({ accessToken: 'ya29.static' }))
+    const tools = createTools(new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static' }))
     expect((tools[5].parameters as any).properties.q).toMatchObject({ type: 'string' })
   })
 
   it('keeps auth test parameter-free', () => {
-    expect(createTools(new GmailClient({ accessToken: 'ya29.static' }))[0].parameters).toEqual({ type: 'object', properties: {} })
+    expect(createTools(new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static' }))[0].parameters).toEqual({ type: 'object', properties: {} })
   })
 
   it('reports missing credentials cleanly', async () => {
@@ -44,7 +48,7 @@ describe('Gmail tools', () => {
       .mockResolvedValueOnce(jsonResponse({ messages: [{ id: 'msg_1', threadId: 'thr_1', snippet: 'hello', labelIds: ['INBOX'] }], resultSizeEstimate: 1 }))
       .mockResolvedValueOnce(jsonResponse({ messages: [{ id: 'msg_1', threadId: 'thr_1', snippet: 'hello', labelIds: ['INBOX'] }], resultSizeEstimate: 1 }))
       .mockResolvedValueOnce(jsonResponse({ labels: [{ id: 'INBOX', name: 'Inbox', type: 'system', messagesTotal: 1, threadsTotal: 1, unreadCount: 0 }] }))
-    const client = new GmailClient({ accessToken: 'ya29.static', fetchImpl })
+    const client = new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static', fetchImpl })
     const tools = createTools(client)
     const list = await tools[1].execute({ labelIds: ['INBOX'] }, exec())
     const renderedList = tools[1].output.render?.({}, list as any)
@@ -64,7 +68,7 @@ describe('Gmail tools', () => {
       .mockResolvedValueOnce(jsonResponse({ id: 'msg_1', threadId: 'thr_1', snippet: 'hello', labelIds: ['INBOX'], historyId: '100', internalDate: '123', payload: { headers: [{ name: 'Subject', value: 'Subject' }], parts: [{ mimeType: 'text/plain', body: { data: Buffer.from('Body', 'utf8').toString('base64url') } }] } }))
       .mockResolvedValueOnce(jsonResponse({ id: 'thr_1', snippet: 'thread', historyId: '200', messages: [{ id: 'msg_1', threadId: 'thr_1', snippet: 'hello', labelIds: ['INBOX'], historyId: '100', internalDate: '123', payload: { headers: [{ name: 'Subject', value: 'Subject' }], parts: [{ mimeType: 'text/plain', body: { data: Buffer.from('Body', 'utf8').toString('base64url') } }] } }] }))
       .mockResolvedValueOnce(jsonResponse({ labels: [{ id: 'INBOX', name: 'Inbox', type: 'system', messagesTotal: 1, threadsTotal: 1, unreadCount: 0 }] }))
-    const client = new GmailClient({ accessToken: 'ya29.static', fetchImpl })
+    const client = new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static', fetchImpl })
     const tools = createTools(client)
 
     const auth = await tools[0].execute({}, exec())
@@ -80,7 +84,7 @@ describe('Gmail tools', () => {
 
   it('passes thread search queries through to the client', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ threads: [{ id: 'thr_1', snippet: 'thread snippet', historyId: '200' }], resultSizeEstimate: 1 }))
-    const client = new GmailClient({ accessToken: 'ya29.static', fetchImpl })
+    const client = new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static', fetchImpl })
     const tools = createTools(client)
 
     await tools[5].execute({ q: 'subject:report', labelIds: ['INBOX'] }, exec())
@@ -93,7 +97,7 @@ describe('Gmail tools', () => {
 
   it('gets an attachment and renders bounded data metadata', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: Buffer.from('hello', 'utf8').toString('base64url'), size: 5 }))
-    const client = new GmailClient({ accessToken: 'ya29.static', fetchImpl })
+    const client = new GmailClient({ lookupImpl: publicLookup, accessToken: 'ya29.static', fetchImpl })
     const tools = createTools(client)
     const attachmentTool = tools.find(tool => tool.name === 'gmail_get_attachment')!
 

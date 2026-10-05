@@ -6,7 +6,7 @@
 |---|---|
 | 项目名 | `dsh-tool-gmail` |
 | 定位 | DeepSeek Harness 的 Gmail 只读集成插件 |
-| 版本 | v0.2.0 |
+| 版本 | v0.3.0 |
 | 架构 | Cordis 插件 + `ctx.tools.register(defineTool(...))` |
 | API | Gmail API v1 |
 | 认证 | static access token 或 OAuth refresh token |
@@ -75,3 +75,7 @@ npm run build
 - 邮件附件提取与落盘。
 - 线程摘要更友好的列表视图。
 - 支持按标签/查询组合的更快聚合工具。
+
+## endpoint 安全校验
+
+`baseUrl` 规范化为 origin + 路径前缀，禁止 credentials、query 和 fragment。每次请求前用 `src/url-security.ts` 做 fail-closed 目标校验：拒绝 localhost/.local 名称、环回、私有、链路本地、CGNAT、组播、保留及全部 IANA 特殊用途地址段，域名 DNS 结果含任一此类地址即拒绝。阻断清单（18 个 IPv4 + 16 个 IPv6）与 IANA 注册表对齐，`src/url-security.ts` 由 `.verify/url-security.template.ts` 生成，不得单独修改。`lookupImpl` 仅作测试注入点，不进入插件配置接口。

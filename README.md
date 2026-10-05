@@ -63,6 +63,8 @@ Useful options:
 
 The helper requests offline access with consent prompting so Google can return a refresh token. Keep the client secret and refresh token private; do not commit them to git.
 
+The `baseUrl` and `tokenUrl` overrides must be an absolute `http://` or `https://` root URL. Only publicly reachable hosts are allowed: localhost, loopback, private, link-local, CGNAT, multicast, reserved/documentation/benchmark ranges, and every IANA special-purpose block are rejected, and a hostname whose DNS results contain any such address fails closed before the request is sent. Credentials, query strings, fragments, and non-root paths are not allowed.
+
 ## Tools
 
 | Tool | Description | Write |
