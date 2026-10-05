@@ -6,7 +6,7 @@
 |---|---|
 | 项目名 | `dsh-tool-gmail` |
 | 定位 | DeepSeek Harness 的 Gmail 只读集成插件 |
-| 版本 | v0.1.0 |
+| 版本 | v0.2.0 |
 | 架构 | Cordis 插件 + `ctx.tools.register(defineTool(...))` |
 | API | Gmail API v1 |
 | 认证 | static access token 或 OAuth refresh token |
